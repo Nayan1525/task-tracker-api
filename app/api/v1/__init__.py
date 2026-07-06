@@ -6,7 +6,8 @@ Aggregates every resource router under the single `/v1` prefix
 
 from fastapi import APIRouter
 
-from app.api.v1.routers import tasks
+from app.api.v1.routers import comments, tasks
 
 api_router = APIRouter(prefix="/v1")
 api_router.include_router(tasks.router)
+api_router.include_router(comments.router)

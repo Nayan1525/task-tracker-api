@@ -13,7 +13,9 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.repositories.comments import CommentRepository
 from app.repositories.tasks import TaskRepository
+from app.services.comments import CommentService
 from app.services.tasks import TaskService
 
 
@@ -28,3 +30,10 @@ def get_db() -> Iterator[Session]:
 
 def get_task_service(db: Session = Depends(get_db)) -> TaskService:
     return TaskService(TaskRepository(db))
+
+
+def get_comment_service(
+    db: Session = Depends(get_db),
+    task_service: TaskService = Depends(get_task_service),
+) -> CommentService:
+    return CommentService(task_service, CommentRepository(db))

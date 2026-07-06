@@ -148,6 +148,26 @@ Acceptance criteria:
 
 Depends on: Milestone 2.
 
+**Status: Done (2026-07-06).** `app/schemas/comment.py`, `app/api/deps.py`'s
+`get_comment_service`, `app/api/v1/routers/comments.py`, and
+`app/api/v1/__init__.py`'s registration were already present at the start of
+this slice or added by it; `tests/integration/test_comments_api.py` added
+covering create/list happy paths, 404 on missing task (both endpoints), 422
+on blank/missing fields, oldest-first ordering, empty-list, multi-task
+isolation, and disallowed methods. Full `pytest` suite green (50 passed).
+One deviation from the plan's literal acceptance-criteria wording: the
+plan/spec describe the "no PUT/PATCH/DELETE for a single comment" check as
+hitting `/v1/tasks/{id}/comments/{comment_id}` and asserting `405`; since no
+route is ever registered for that path (no single-comment endpoint exists
+at all, per FR7), FastAPI actually 404s there (no route matches any
+method) — confirmed manually. The test instead asserts `405` for
+DELETE/PUT/PATCH against the registered collection path
+(`/v1/tasks/{id}/comments`, which only defines `POST`/`GET`), which is
+where a 405 is actually reachable. Both outcomes satisfy the underlying
+requirement (framework default, no custom handler, no way to mutate/delete
+a single comment) — documented here rather than silently diverging from
+the plan text.
+
 ## Milestone 4 — End-to-end cascade regression test and documentation
 
 Deliverables:
