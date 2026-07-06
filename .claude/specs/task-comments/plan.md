@@ -204,6 +204,28 @@ Acceptance criteria:
 
 Depends on: Milestone 3.
 
+**Status: Done (2026-07-06).** Added
+`test_deleting_task_via_api_cascades_to_its_comments` to
+`tests/integration/test_comments_api.py`: creates a task and two comments
+through the API, deletes the task through `DELETE /v1/tasks/{id}`, then
+asserts directly against `CommentRepository.list_for_task` that zero rows
+remain — the FR6/spec §10 scenario driven end-to-end through the API rather
+than the repository directly (complementing, not duplicating, Milestone 1's
+repository-level cascade test). Manually confirmed the test fails with an
+`IntegrityError` if `ondelete="CASCADE"` is removed from `Comment.task_id`,
+then restored the column — it exercises the cascade, not a vacuous pass.
+Updated `README.md`'s "Try it" curl walkthrough with the two new endpoints,
+`CLAUDE.md`'s Project Layout and Routers sections to list the new
+`comments.py` files and describe the nested router, and root `spec.md`'s Out
+of Scope section with a pointer note to
+`.claude/specs/task-comments/spec.md` correcting the stale "sub-resources
+such as comments... out of scope" line. Full end-to-end verification against
+the spec (all FR1–FR8, both response contracts, layering, `/docs` schema
+constraints) performed manually against a running app instance — see slice
+report. Full `pytest` suite green (51 passed), with the only test-file diff
+being additive lines in `test_comments_api.py` — zero pre-existing tests
+modified, per spec §12's success criteria.
+
 ## Review gates
 
 Review happens after every milestone, each landed as its own commit (or

@@ -78,6 +78,10 @@ filtered by status), fetch one by id, update its status/fields, delete one.
   (`../engineering-playbook/core/api-design.md`) would be the first addition
   if this grew into a real product.
 - Sub-resources such as comments, attachments, assignees, projects, or tags.
+  **Update:** comments are no longer out of scope — see
+  `.claude/specs/task-comments/spec.md` for the approved follow-up spec that
+  adds `Task` comments. Attachments, assignees, projects, and tags remain
+  out of scope.
 - Full-text search or sorting options beyond newest-first.
 - Schema migrations tooling (Alembic) — the sample creates tables on startup
   via `Base.metadata.create_all()` for simplicity; a real service would run

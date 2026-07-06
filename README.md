@@ -71,6 +71,12 @@ curl http://localhost:8000/v1/tasks
 curl http://localhost:8000/v1/tasks/1
 curl "http://localhost:8000/v1/tasks?status=in_progress"
 curl -X PATCH http://localhost:8000/v1/tasks/1 -H 'Content-Type: application/json' -d '{"status": "in_progress"}'
+
+curl -X POST http://localhost:8000/v1/tasks/1/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"author": "Alice", "message": "Blocked on design review"}'
+curl http://localhost:8000/v1/tasks/1/comments
+
 curl -X DELETE http://localhost:8000/v1/tasks/1
 curl http://localhost:8000/v1/tasks/999   # 404 error envelope
 ```

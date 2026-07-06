@@ -3,14 +3,16 @@
 Exercises the routers -> service -> repository -> real DB stack wired
 together (frameworks/fastapi/testing.md). Covers create/list, the 404 path
 for a missing task on both endpoints, the 422 validation-error envelope,
-oldest-first ordering, multi-task isolation, and the absent DELETE/PUT/PATCH
-routes (FR7).
+oldest-first ordering, multi-task isolation, the absent DELETE/PUT/PATCH
+routes (FR7), and the FR6 end-to-end cascade-delete regression (spec §10)
+driven entirely through the API rather than the repository directly.
 """
 
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.repositories.comments import CommentRepository
 from tests.factories import make_comment_payload, make_task_payload
 
 
@@ -124,3 +126,28 @@ def test_delete_put_patch_on_comments_collection_not_allowed(client: TestClient)
     assert client.delete(f"/v1/tasks/{task_id}/comments").status_code == 405
     assert client.put(f"/v1/tasks/{task_id}/comments").status_code == 405
     assert client.patch(f"/v1/tasks/{task_id}/comments").status_code == 405
+
+
+def test_deleting_task_via_api_cascades_to_its_comments(
+    client: TestClient, comment_repository: CommentRepository
+) -> None:
+    # Spec §10's explicit end-to-end regression: create a task and its
+    # comments through the API (not the repository), delete the task through
+    # the API's existing DELETE /v1/tasks/{id}, then assert directly against
+    # the repository that zero comment rows remain — proving the cascade
+    # fires from the real request path, not just when a repository test
+    # calls TaskRepository.delete directly (see test_comment_repository.py).
+    task_id = _create_task(client)
+    client.post(
+        f"/v1/tasks/{task_id}/comments",
+        json=make_comment_payload(author="Alice", message="First"),
+    )
+    client.post(
+        f"/v1/tasks/{task_id}/comments",
+        json=make_comment_payload(author="Bob", message="Second"),
+    )
+
+    delete_resp = client.delete(f"/v1/tasks/{task_id}")
+    assert delete_resp.status_code == 204
+
+    assert comment_repository.list_for_task(task_id) == []

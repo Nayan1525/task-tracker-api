@@ -20,23 +20,29 @@ out-of-scope decisions (auth, pagination, Alembic migrations are all deliberatel
 
 ```
 app/
-├── api/v1/routers/   # one APIRouter per resource, mounted under /v1
+├── api/v1/routers/   # one APIRouter per resource, mounted under /v1 (tasks.py, comments.py)
 ├── core/             # settings, exceptions, logging
 ├── db/                # engine/session, Base, init_db()
-├── models/            # SQLAlchemy ORM models (never returned to a client)
-├── schemas/           # Pydantic request/response models
-├── services/          # business logic, raises domain exceptions
-├── repositories/      # the only layer touching SQLAlchemy query APIs
+├── models/            # SQLAlchemy ORM models (never returned to a client): task.py, comment.py
+├── schemas/           # Pydantic request/response models: task.py, comment.py
+├── services/          # business logic, raises domain exceptions: tasks.py, comments.py
+├── repositories/      # the only layer touching SQLAlchemy query APIs: tasks.py, comments.py
 └── main.py            # app factory, middleware, exception handlers, router mounting
 tests/
 ├── unit/               # service vs. a fake repository — no DB, no app
 └── integration/        # repository + full app via TestClient, real in-memory SQLite
 ```
 
+`Comment` is a child resource of `Task` (many comments to one task, DB-enforced `ON DELETE CASCADE`)
+— see `.claude/specs/task-comments/spec.md` for its spec.
+
 ## Routers
 
 - One `APIRouter` per resource under `app/api/v1/routers/`, mounted under `/v1` via `app/api/v1/__init__.py`'s
   aggregate router; unversioned infra endpoints (`/health`, `/ready`) mount directly on the app.
+- `comments.py` nests one level under its parent: `APIRouter(prefix="/tasks/{task_id}/comments")`, matching the
+  one-level-deep nesting convention for sub-resources. It defines only `POST`/`GET` (no `PUT`/`PATCH`/`DELETE`
+  for an individual comment — comments are immutable, so the framework's default 405 applies to those methods).
 - Handlers are thin and **synchronous** `def`, not `async def` — DB access here is sync SQLAlchemy, so FastAPI
   runs handlers in its threadpool (see the docstring in `app/api/v1/routers/tasks.py`). Don't make a handler
   `async def` unless it's actually awaiting something.
