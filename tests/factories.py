@@ -7,6 +7,7 @@ tests. Each has sane defaults; a test overrides only what it cares about.
 
 from __future__ import annotations
 
+from app.models.comment import Comment
 from app.models.task import Task, TaskPriority, TaskStatus
 
 
@@ -27,3 +28,19 @@ def make_task_model(**overrides) -> Task:
         priority=TaskPriority.MEDIUM,
     )
     return Task(**{**defaults, **overrides})
+
+
+def make_comment_payload(**overrides) -> dict:
+    return {
+        "author": "Jane Doe",
+        "message": "Looks good to me.",
+        **overrides,
+    }
+
+
+def make_comment_model(*, task_id: int, **overrides) -> Comment:
+    defaults = dict(
+        author="Jane Doe",
+        message="Looks good to me.",
+    )
+    return Comment(task_id=task_id, **{**defaults, **overrides})

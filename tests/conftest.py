@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
-from app.db.session import Base
+from app.db.session import Base, enable_sqlite_foreign_keys
 from app.main import create_app
+from app.repositories.comments import CommentRepository
 from app.repositories.tasks import TaskRepository
 
 
@@ -35,6 +36,10 @@ def db_session() -> Iterator[Session]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    # Without this, SQLite silently ignores FK constraints (including
+    # comments.task_id's ON DELETE CASCADE) and the test suite would pass
+    # vacuously — see spec §13's cross-database risk.
+    enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
     testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = testing_session_local()
@@ -48,6 +53,11 @@ def db_session() -> Iterator[Session]:
 @pytest.fixture
 def repository(db_session: Session) -> TaskRepository:
     return TaskRepository(db_session)
+
+
+@pytest.fixture
+def comment_repository(db_session: Session) -> CommentRepository:
+    return CommentRepository(db_session)
 
 
 @pytest.fixture
