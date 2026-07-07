@@ -51,6 +51,30 @@ All scratch databases and the throwaway container were dropped/removed
 after verification; `docker-compose.yml`'s `postgres` service and its
 volume were never started or touched during this milestone.
 
+### Re-verification (2026-07-07)
+
+The acceptance criteria checkboxes above were left unchecked after the work
+above landed, so this pass independently re-ran the same checks (rather
+than taking the note above on faith) against a fresh throwaway
+`postgres:16-alpine` container on `localhost:5544` — again separate from
+`docker-compose.yml`'s `postgres` service:
+- Fresh DB: `alembic upgrade head` applied both migrations cleanly; `\d`
+  showed `comments`/`tasks` matching the models exactly (FK
+  `ON DELETE CASCADE`, `ix_comments_task_id`, `ix_tasks_status`); `alembic
+  check` reported "No new upgrade operations detected."
+- Pre-Alembic seed: built via `alembic upgrade 2baa5d553906` then dropping
+  `alembic_version`; confirmed no `comments`/`alembic_version` table.
+  Inserted 2 `tasks` rows, recorded an MD5 checksum
+  (`67824d650d6e966d8dea2f61eaad5a48`). `alembic stamp 2baa5d553906` then
+  `alembic upgrade head` added `comments` (0 rows); the `tasks` checksum
+  was unchanged afterward.
+- Rollback: `alembic downgrade -1` then `alembic downgrade base` from the
+  fully-upgraded fresh DB dropped `comments` then `tasks` with no errors.
+- `pytest`: 51 passed, unchanged.
+
+The scratch container was removed afterward. All acceptance criteria
+checkboxes above are now checked off to reflect this.
+
 ## Prior milestone (context, not in scope here)
 
 Milestone 1 is complete: `alembic` is a declared dependency
@@ -267,33 +291,33 @@ milestone.
 
 ## 5. Acceptance Criteria
 
-- [ ] `alembic/versions/<new_rev>_add_comments_table.py` exists, chains
+- [x] `alembic/versions/<new_rev>_add_comments_table.py` exists, chains
       onto the Milestone 1 baseline (`down_revision = "2baa5d553906"`), and
       was hand-reviewed against `app/models/comment.py` before being
       treated as final — not committed as raw autogenerate output.
-- [ ] Applying the full migration history to a fresh, empty Postgres
+- [x] Applying the full migration history to a fresh, empty Postgres
       database produces `tasks` and `comments` matching
       `Base.metadata.create_all()`'s output exactly — every column,
       type/default, `ix_tasks_status`, `ix_comments_task_id`, and the
       `task_id → tasks.id` FK with `ON DELETE CASCADE` — confirmed by
       direct schema introspection, not just a successful `upgrade` run.
       (FR1)
-- [ ] A scratch database seeded to look like today's real pre-Alembic state
+- [x] A scratch database seeded to look like today's real pre-Alembic state
       (`tasks` present via the baseline DDL, no `comments` table, no
       `alembic_version` table) is confirmed to have zero `comments`
       rows/table before the transition is exercised against it.
-- [ ] Running stamp-then-upgrade against that seeded database results in
+- [x] Running stamp-then-upgrade against that seeded database results in
       exactly `comments` being added, with the pre-existing `tasks` rows
       byte-for-byte unchanged and no manual SQL executed at any point.
       (FR2)
-- [ ] Rolling back the full history from a fully-upgraded scratch database
+- [x] Rolling back the full history from a fully-upgraded scratch database
       drops `comments` first, then `tasks`, with no constraint or index
       error at either step. (FR3)
-- [ ] Alembic's own autogenerate diff, run against a fully-migrated scratch
+- [x] Alembic's own autogenerate diff, run against a fully-migrated scratch
       database, reports no pending changes (cross-check against the manual
       schema introspection above).
-- [ ] `pytest` (full existing suite) passes unchanged.
-- [ ] Every check above was run against a real Postgres instance, using
+- [x] `pytest` (full existing suite) passes unchanged.
+- [x] Every check above was run against a real Postgres instance, using
       disposable scratch databases that are dropped afterward — no shared
       local database with real data was used, and nothing in this
       milestone touched a staging/production environment.
