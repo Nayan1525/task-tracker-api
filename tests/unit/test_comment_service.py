@@ -28,7 +28,7 @@ class FakeTaskRepository:
         self._rows: dict[int, Task] = {}
         self._next_id = 1
 
-    def create(self, *, title, description, priority, due_date) -> Task:
+    def create(self, *, title, description, priority, due_date, remind_days_before=None) -> Task:
         now = _dt.datetime.now(tz=_dt.timezone.utc)
         task = Task(
             id=self._next_id,
@@ -37,6 +37,7 @@ class FakeTaskRepository:
             status=TaskStatus.TODO,
             priority=priority,
             due_date=due_date,
+            remind_days_before=remind_days_before,
             created_at=now,
             updated_at=now,
         )

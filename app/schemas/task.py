@@ -22,6 +22,16 @@ class TaskCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     priority: TaskPriority = TaskPriority.MEDIUM
     due_date: _dt.date | None = None
+    remind_days_before: int | None = Field(
+        default=None,
+        ge=0,
+        le=3650,
+        description=(
+            "Number of days before due_date to remind on. Requires due_date to "
+            "also be set. Configuring this does not send any notification — no "
+            "delivery mechanism exists yet."
+        ),
+    )
 
 
 class TaskUpdate(BaseModel):
@@ -36,6 +46,16 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_date: _dt.date | None = None
+    remind_days_before: int | None = Field(
+        default=None,
+        ge=0,
+        le=3650,
+        description=(
+            "Number of days before due_date to remind on. Requires due_date to "
+            "also be set. Configuring this does not send any notification — no "
+            "delivery mechanism exists yet."
+        ),
+    )
 
 
 class TaskRead(BaseModel):
@@ -53,6 +73,13 @@ class TaskRead(BaseModel):
     status: TaskStatus
     priority: TaskPriority
     due_date: _dt.date | None
+    remind_days_before: int | None = Field(
+        description=(
+            "Number of days before due_date to remind on, null if no reminder "
+            "is configured. Configuring this does not send any notification — "
+            "no delivery mechanism exists yet."
+        ),
+    )
     created_at: _dt.datetime
     updated_at: _dt.datetime
 

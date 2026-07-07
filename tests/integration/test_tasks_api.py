@@ -8,9 +8,12 @@ validation.
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+import datetime as _dt
 
-from tests.factories import make_task_payload
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from tests.factories import make_task_model, make_task_payload
 
 
 def test_create_task_returns_201_and_resource(client: TestClient) -> None:
@@ -115,9 +118,100 @@ def test_response_does_not_leak_unexpected_fields(client: TestClient) -> None:
         "status",
         "priority",
         "due_date",
+        "remind_days_before",
         "created_at",
         "updated_at",
     }
+
+
+# --- Reminder configuration (remind_days_before, FR2/FR5) -----------------
+
+
+def test_create_with_due_date_and_reminder_returns_201(client: TestClient) -> None:
+    resp = client.post(
+        "/v1/tasks",
+        json=make_task_payload(due_date="2026-12-01", remind_days_before=3),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["due_date"] == "2026-12-01"
+    assert body["remind_days_before"] == 3
+
+
+def test_create_with_reminder_but_no_due_date_returns_422(client: TestClient) -> None:
+    resp = client.post("/v1/tasks", json=make_task_payload(remind_days_before=3))
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_REMINDER_CONFIGURATION"
+
+
+def test_patch_can_set_read_back_and_clear_reminder(client: TestClient) -> None:
+    created = client.post(
+        "/v1/tasks", json=make_task_payload(due_date="2026-12-01")
+    ).json()
+    assert created["remind_days_before"] is None
+
+    set_resp = client.patch(
+        f"/v1/tasks/{created['id']}", json={"remind_days_before": 5}
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["remind_days_before"] == 5
+
+    get_resp = client.get(f"/v1/tasks/{created['id']}")
+    assert get_resp.json()["remind_days_before"] == 5
+
+    clear_resp = client.patch(
+        f"/v1/tasks/{created['id']}", json={"remind_days_before": None}
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["remind_days_before"] is None
+
+
+def test_patch_removing_due_date_with_existing_reminder_returns_422(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/v1/tasks",
+        json=make_task_payload(due_date="2026-12-01", remind_days_before=3),
+    ).json()
+    resp = client.patch(f"/v1/tasks/{created['id']}", json={"due_date": None})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_REMINDER_CONFIGURATION"
+
+
+def test_patch_removing_due_date_and_clearing_reminder_returns_200(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/v1/tasks",
+        json=make_task_payload(due_date="2026-12-01", remind_days_before=3),
+    ).json()
+    resp = client.patch(
+        f"/v1/tasks/{created['id']}",
+        json={"due_date": None, "remind_days_before": None},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["due_date"] is None
+    assert body["remind_days_before"] is None
+
+
+def test_get_endpoints_include_reminder_field_for_task_without_one(
+    client: TestClient, db_session: Session
+) -> None:
+    # Seeded directly, bypassing the API — proves pre-existing/unrelated
+    # tasks (no remind_days_before ever set) still round-trip as null.
+    task = make_task_model(due_date=_dt.date(2026, 12, 1))
+    db_session.add(task)
+    db_session.commit()
+
+    list_resp = client.get("/v1/tasks")
+    assert list_resp.status_code == 200
+    listed = next(t for t in list_resp.json()["data"] if t["id"] == task.id)
+    assert listed["remind_days_before"] is None
+
+    get_resp = client.get(f"/v1/tasks/{task.id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["remind_days_before"] is None
 
 
 def test_health_endpoint(client: TestClient) -> None:

@@ -11,7 +11,7 @@ import datetime as _dt
 
 import pytest
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import InvalidReminderConfigurationError, NotFoundError
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.tasks import TaskService
@@ -24,7 +24,7 @@ class FakeTaskRepository:
         self._rows: dict[int, Task] = {}
         self._next_id = 1
 
-    def create(self, *, title, description, priority, due_date) -> Task:
+    def create(self, *, title, description, priority, due_date, remind_days_before=None) -> Task:
         now = _dt.datetime.now(tz=_dt.timezone.utc)
         task = Task(
             id=self._next_id,
@@ -33,6 +33,7 @@ class FakeTaskRepository:
             status=TaskStatus.TODO,
             priority=priority,
             due_date=due_date,
+            remind_days_before=remind_days_before,
             created_at=now,
             updated_at=now,
         )
@@ -136,3 +137,72 @@ def test_delete_removes_task(service: TaskService) -> None:
 def test_delete_missing_raises_not_found(service: TaskService) -> None:
     with pytest.raises(NotFoundError):
         service.delete(999)
+
+
+# --- Reminder cross-field validation (FR2/FR5) ---------------------------
+
+
+def test_create_with_reminder_and_due_date_succeeds(service: TaskService) -> None:
+    task = service.create(
+        _payload(due_date=_dt.date(2026, 12, 1), remind_days_before=3)
+    )
+    assert task.due_date == _dt.date(2026, 12, 1)
+    assert task.remind_days_before == 3
+
+
+def test_create_with_reminder_without_due_date_raises(service: TaskService) -> None:
+    with pytest.raises(InvalidReminderConfigurationError) as exc_info:
+        service.create(_payload(remind_days_before=3))
+    assert exc_info.value.code == "INVALID_REMINDER_CONFIGURATION"
+    assert exc_info.value.status_code == 422
+
+
+def test_update_can_clear_reminder_via_explicit_null(service: TaskService) -> None:
+    created = service.create(
+        _payload(due_date=_dt.date(2026, 12, 1), remind_days_before=3)
+    )
+    updated = service.update(created.id, TaskUpdate(remind_days_before=None))
+    assert updated.remind_days_before is None
+    assert updated.due_date == _dt.date(2026, 12, 1)  # untouched
+
+
+def test_update_removing_due_date_with_existing_reminder_raises(
+    service: TaskService,
+) -> None:
+    created = service.create(
+        _payload(due_date=_dt.date(2026, 12, 1), remind_days_before=3)
+    )
+    with pytest.raises(InvalidReminderConfigurationError) as exc_info:
+        service.update(created.id, TaskUpdate(due_date=None))
+    assert exc_info.value.code == "INVALID_REMINDER_CONFIGURATION"
+    # The failed validation must not have partially applied.
+    assert service.get(created.id).due_date == _dt.date(2026, 12, 1)
+    assert service.get(created.id).remind_days_before == 3
+
+
+def test_update_removing_due_date_and_clearing_reminder_succeeds(
+    service: TaskService,
+) -> None:
+    created = service.create(
+        _payload(due_date=_dt.date(2026, 12, 1), remind_days_before=3)
+    )
+    updated = service.update(
+        created.id, TaskUpdate(due_date=None, remind_days_before=None)
+    )
+    assert updated.due_date is None
+    assert updated.remind_days_before is None
+
+
+def test_update_unrelated_field_with_existing_reminder_does_not_raise(
+    service: TaskService,
+) -> None:
+    # Exercises the resulting-state merge itself (not the `fields`-empty
+    # early return) against a task that already has a valid due_date +
+    # reminder pair — the merge must carry both forward unchanged.
+    created = service.create(
+        _payload(due_date=_dt.date(2026, 12, 1), remind_days_before=3)
+    )
+    updated = service.update(created.id, TaskUpdate(title="Renamed"))
+    assert updated.title == "Renamed"
+    assert updated.due_date == _dt.date(2026, 12, 1)
+    assert updated.remind_days_before == 3

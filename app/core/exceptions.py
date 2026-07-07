@@ -39,6 +39,22 @@ class NotFoundError(AppError):
         super().__init__(f"{resource} {resource_id} not found")
 
 
+class InvalidReminderConfigurationError(AppError):
+    """A task would end up with `remind_days_before` set but no `due_date`.
+
+    Raised by `TaskService` for the FR2/FR5 cross-field invariant — this
+    can't be expressed as a single Pydantic field constraint for `PATCH`
+    since it must hold against the task's *resulting* state, not just the
+    fields present in one request.
+    """
+
+    code = "INVALID_REMINDER_CONFIGURATION"
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("remind_days_before requires the task to also have a due_date")
+
+
 def to_error_response(exc: AppError) -> tuple[int, dict]:
     """Map a domain exception to (status_code, error-envelope body).
 

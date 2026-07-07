@@ -56,6 +56,7 @@ class Task(Base):
         default=TaskPriority.MEDIUM,
     )
     due_date: Mapped[_dt.date | None] = mapped_column(Date, nullable=True)
+    remind_days_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[_dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

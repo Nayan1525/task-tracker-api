@@ -28,12 +28,14 @@ class TaskRepository:
         description: str | None,
         priority: TaskPriority,
         due_date: _dt.date | None,
+        remind_days_before: int | None = None,
     ) -> Task:
         task = Task(
             title=title,
             description=description,
             priority=priority,
             due_date=due_date,
+            remind_days_before=remind_days_before,
         )
         self._db.add(task)
         self._db.commit()

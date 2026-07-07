@@ -7,6 +7,8 @@ round-trip, not that a mock behaves as told.
 
 from __future__ import annotations
 
+import datetime as _dt
+
 from app.models.task import TaskPriority, TaskStatus
 from app.repositories.tasks import TaskRepository
 
@@ -21,6 +23,26 @@ def test_create_then_get_round_trips(repository: TaskRepository) -> None:
     assert fetched.status == TaskStatus.TODO
     assert fetched.priority == TaskPriority.HIGH
     assert fetched.created_at is not None
+
+
+def test_create_with_remind_days_before_round_trips(repository: TaskRepository) -> None:
+    created = repository.create(
+        title="A",
+        description=None,
+        priority=TaskPriority.MEDIUM,
+        due_date=_dt.date(2026, 12, 1),
+        remind_days_before=3,
+    )
+    assert repository.get(created.id).remind_days_before == 3
+
+
+def test_create_without_remind_days_before_round_trips_as_none(
+    repository: TaskRepository,
+) -> None:
+    created = repository.create(
+        title="A", description=None, priority=TaskPriority.MEDIUM, due_date=None
+    )
+    assert repository.get(created.id).remind_days_before is None
 
 
 def test_get_missing_returns_none(repository: TaskRepository) -> None:
