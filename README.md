@@ -84,6 +84,23 @@ curl -X DELETE http://localhost:8000/v1/tasks/1
 curl http://localhost:8000/v1/tasks/999   # 404 error envelope
 ```
 
+## Task fields
+
+`Task` (`app/schemas/task.py`) exposes the following fields through
+`TaskCreate`/`TaskUpdate`/`TaskRead` (`POST`/`GET`/`PATCH` all use the same
+representation):
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `int` | server-assigned, read-only |
+| `title` | `string` | required, 1–200 chars |
+| `description` | `string \| null` | optional, up to 2000 chars |
+| `status` | `"todo" \| "in_progress" \| "done"` | defaults to `"todo"`; not settable on create |
+| `priority` | `"low" \| "medium" \| "high"` | defaults to `"medium"` |
+| `due_date` | `date \| null` | optional, no time-of-day |
+| `remind_days_before` | `int \| null` | optional, `0`–`3650`. Requires `due_date` to be set in the same request (create) or to already be set / also being set (update). A request that would leave a reminder configured with no `due_date` fails with `422` (`INVALID_REMINDER_CONFIGURATION`). **Configuring this field only persists the reminder preference — it does not cause any notification (email, push, SMS, or otherwise) to be sent. No delivery mechanism exists yet.** `null` means no reminder is configured. |
+| `created_at` / `updated_at` | `datetime` | server-assigned, read-only |
+
 ## Running tests
 
 ```bash

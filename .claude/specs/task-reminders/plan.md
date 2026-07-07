@@ -344,6 +344,54 @@ Acceptance criteria:
 
 Depends on: Milestone 3.
 
+**Status: Done (2026-07-07).** Root `README.md` gained a new "Task fields"
+section (there was no pre-existing `Task` field/schema documentation section
+to extend — this milestone's own deliverable, read literally, presumes one
+exists; see deviation note below), placed after the `curl` walkthrough in
+"Running locally". It documents all seven `Task` fields
+(`id`/`title`/`description`/`status`/`priority`/`due_date`/`created_at`/
+`updated_at`, plus the new `remind_days_before`) in a table, so the new
+field's entry (its `0`–`3650` bound, that it requires `due_date` in the same
+request or already present, the `422`/`INVALID_REMINDER_CONFIGURATION`
+failure mode, and — bolded, matching spec §13's "single biggest risk"
+framing — that configuring it persists a preference only and sends no
+notification of any kind) reads in context rather than as an orphaned
+one-row table.
+
+**One necessary deviation from the plan's literal wording:** the plan's
+Milestone 4 deliverable says README's "`Task` field/schema documentation"
+should "gain `remind_days_before`" — phrasing that presumes such a section
+already exists to be extended. It doesn't; `README.md` before this milestone
+had no field-by-field `Task` documentation at all (confirmed by grep — the
+only prior mention of `due_date`/`priority` was inline in one `curl`
+example). Adding only a single-row table for `remind_days_before` in
+isolation would have been more misleading than helpful (a reader would
+reasonably wonder why only one of `Task`'s eight fields is documented).
+Resolved by writing the full field table spec §11 implicitly requires
+context for, sourced directly from `app/schemas/task.py`/`app/models/task.py`
+(verified against both, including exact enum values for `status`/`priority`
+and that `status` isn't settable on `TaskCreate`) — not a re-derivation from
+memory. This is judged to be in scope for "documentation identified by the
+plan" (the deliverable names this exact README section) rather than
+"unrelated improvement," since the section couldn't otherwise contain the
+required entry in a coherent form.
+
+Manual read-through performed (spec §11/§12's own acceptance bar) — the
+table renders correctly (pipes inside cells escaped as `\|`), the
+notification-caveat line is bolded and unambiguous, and cross-checked word
+values (`status`/`priority` enum members, `remind_days_before`'s bounds and
+422 error code) against `app/models/task.py`/`app/schemas/task.py`/
+`app/core/exceptions.py` directly rather than trusting Milestone 3's prose.
+No contradiction found between this section and the OpenAPI schema
+descriptions from Milestone 3.
+
+Full `pytest` suite green (65 passed — unchanged from Milestone 3, as
+expected for a documentation-only change). `git status`/`git diff --stat`
+confirm the only change in this milestone's diff is `README.md`; zero test
+files were touched, satisfying this milestone's own "zero pre-existing
+tests modified" acceptance criterion trivially (no test files were touched
+at all, not just none of the four named ones).
+
 ## Review gates
 
 Review happens after every milestone, each landed as its own commit (or
