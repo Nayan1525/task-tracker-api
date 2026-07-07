@@ -1,386 +1,291 @@
-# Plan: Task Comments Database Migration — Milestone 2
+# Plan: Task Comments Database Migration — Milestone 3
 
-Status: Implemented ✅ Done (2026-07-06)
+Status: Implemented ✅ Done (2026-07-07)
 Traces to: [spec.md](./spec.md)
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
-## Completion note (Task 6)
+## Completion note
 
-`alembic/versions/8f3a500e1e75_add_comments_table.py` was generated via
-autogenerate against a scratch Postgres database already upgraded to the
-Milestone 1 baseline (`2baa5d553906`) — autogenerate detected only the
-missing `comments` table and its `ix_comments_task_id` index, correctly
-capturing the `task_id → tasks.id` foreign key with `ondelete='CASCADE'`.
-Hand-review against `app/models/comment.py` found the generated file
-already matched the model exactly (column-for-column, same as how
-`created_at`'s Python-side `default=` correctly produces no DDL default,
-consistent with the baseline migration's treatment of `Task`'s
-timestamp columns) — no trimming or correction was needed, unlike
-Milestone 1's baseline.
+Tasks 1–5 landed together: `app/main.py`'s lifespan no longer imports or
+calls `init_db()` (only its unrelated `logger.info("app_started", ...)`
+call remains), `app/db/session.py::init_db()` was deleted entirely (`grep
+-rn init_db app/ tests/` returns nothing), and `tests/conftest.py`'s
+`client` fixture no longer takes a `monkeypatch` parameter or references
+`app.main.init_db` — `db_session`'s own direct `Base.metadata.create_all(engine)`
+call was already sufficient and is unchanged.
+
+`pytest`: 51 passed, unchanged from Milestones 1–2.
 
 Verified against a disposable scratch Postgres instance (a throwaway
-`postgres:16-alpine` container on `localhost:5544`, separate from
-`docker-compose.yml`'s `postgres` service to avoid touching any
-shared/local database):
-- **Fresh database:** `alembic upgrade head` against an empty database
-  produced `tasks` and `comments` byte-for-byte identical (via `\d`
-  introspection) to a separate `Base.metadata.create_all()` scratch
-  database — same columns, types, nullability, defaults,
-  `ix_tasks_status`, `ix_comments_task_id`, and the cascade FK. `alembic
-  check` against the migrated database reported "No new upgrade
-  operations detected," confirming no model/migration drift.
-- **Existing pre-Alembic database:** a scratch database was seeded by
-  applying only the baseline migration's `upgrade()` (`alembic upgrade
-  2baa5d553906`) and then dropping the `alembic_version` table it
-  created, reproducing "has `tasks`, no `comments`, no Alembic
-  bookkeeping." Two rows were inserted into `tasks` and their MD5
-  checksum recorded. Confirmed beforehand: no `comments` table, zero
-  `comments` rows. `alembic stamp 2baa5d553906` recorded the baseline as
-  applied without running any DDL (no upgrade log line for it), then
-  `alembic upgrade head` ran only the `comments` migration. Result:
-  `comments` created correctly (0 rows), and the `tasks` rows' checksum
-  was identical before and after — no data loss, no manual SQL.
-- **Rollback:** from the fully-upgraded fresh database, `alembic
-  downgrade -1` dropped `comments` cleanly (FK respected), and `alembic
-  downgrade base` then dropped `tasks` cleanly — no constraint or index
-  errors at either step.
-- `pytest`: 51 tests passed, unchanged from Milestone 1's count — nothing
-  in `app/` or `tests/` was touched.
+`postgres:16-alpine` container on `localhost:5555`, dropped afterward —
+`docker-compose.yml`'s `postgres` service was never started or touched):
+- **Pre-migration:** booting the app (`uvicorn app.main:app`) against a
+  completely empty scratch database and requesting `GET /v1/tasks` failed
+  with `sqlalchemy.exc.ProgrammingError: (psycopg.errors.UndefinedTable)
+  relation "tasks" does not exist` — confirming no implicit schema creation
+  happens at startup anymore.
+- **Post-migration:** running `alembic upgrade head` against that same
+  database, then re-issuing the identical request, returned `200 {"data":
+  []}`; a follow-up `POST /v1/tasks` returned `201` with the created task —
+  confirming the migrate-then-boot workflow works end to end.
 
-All scratch databases and the throwaway container were dropped/removed
-after verification; `docker-compose.yml`'s `postgres` service and its
-volume were never started or touched during this milestone.
+The scratch container was removed after verification.
 
-### Re-verification (2026-07-07)
+## Prior milestones (context, not in scope here)
 
-The acceptance criteria checkboxes above were left unchecked after the work
-above landed, so this pass independently re-ran the same checks (rather
-than taking the note above on faith) against a fresh throwaway
-`postgres:16-alpine` container on `localhost:5544` — again separate from
-`docker-compose.yml`'s `postgres` service:
-- Fresh DB: `alembic upgrade head` applied both migrations cleanly; `\d`
-  showed `comments`/`tasks` matching the models exactly (FK
-  `ON DELETE CASCADE`, `ix_comments_task_id`, `ix_tasks_status`); `alembic
-  check` reported "No new upgrade operations detected."
-- Pre-Alembic seed: built via `alembic upgrade 2baa5d553906` then dropping
-  `alembic_version`; confirmed no `comments`/`alembic_version` table.
-  Inserted 2 `tasks` rows, recorded an MD5 checksum
-  (`67824d650d6e966d8dea2f61eaad5a48`). `alembic stamp 2baa5d553906` then
-  `alembic upgrade head` added `comments` (0 rows); the `tasks` checksum
-  was unchanged afterward.
-- Rollback: `alembic downgrade -1` then `alembic downgrade base` from the
-  fully-upgraded fresh DB dropped `comments` then `tasks` with no errors.
-- `pytest`: 51 passed, unchanged.
+Milestone 1 is complete: `alembic` is a declared dependency, `alembic/env.py`
+resolves its connection from `get_settings().database_url` and sees both
+`Task` and `Comment` via `Base.metadata`, and a baseline migration
+(`2baa5d553906`) creates `tasks` exactly as `app/models/task.py` defines it.
 
-The scratch container was removed afterward. All acceptance criteria
-checkboxes above are now checked off to reflect this.
+Milestone 2 is complete: a second migration (`8f3a500e1e75`) creates
+`comments` exactly as `app/models/comment.py` defines it, chained onto the
+baseline. Both migrations were verified against real Postgres — a fresh
+database's full history matches `Base.metadata.create_all()`'s output
+exactly, a database seeded to look like today's pre-Alembic state
+transitions via stamp-then-upgrade with zero data loss, and rollback works
+end to end. `pytest` passes unchanged (51 tests). See
+`.claude/specs/task-comments-migration/plan.md`'s git history (commits
+`318ae05`, `9a2e971`, `617e375`) for the full record of both milestones.
 
-## Prior milestone (context, not in scope here)
-
-Milestone 1 is complete: `alembic` is a declared dependency
-(`pyproject.toml`), `alembic.ini` carries no static `sqlalchemy.url`,
-`alembic/env.py` resolves the connection from `get_settings().database_url`
-and sets `target_metadata = Base.metadata` via an `app.models` import (so
-both `Task` and `Comment` are visible to autogenerate), and a baseline
-migration (`alembic/versions/2baa5d553906_baseline_tasks_table.py`) creates
-`tasks` exactly as `app/models/task.py` defines it — verified against a real
-Postgres instance to match `Base.metadata.create_all()`'s output
-column-for-column, with a clean downgrade. `pytest` passes unchanged. This
-document plans **only** the next slice, Milestone 2, per the approved
-plan's sequencing (`comments` migration + existing-database transition,
-depends on Milestone 1).
+This document plans **only** the next slice, Milestone 3 (the "cutover"),
+per the approved spec's FR5 and the Milestone 2 plan's own "Out of Scope"
+deferral of this exact work.
 
 ---
 
 ## 1. Objective
 
-Add the second Alembic migration — creating `comments` exactly as
-`app/models/comment.py` defines it, depending on the Milestone 1 baseline —
-and prove, against a real Postgres instance, that a database created before
-Alembic existed (has `tasks`, has no `comments`, has no Alembic version
-tracking) can adopt Alembic and gain `comments` with zero data loss and no
-hand-written SQL. This closes FR1–FR4 of the spec in full: a fresh database
-and an already-running one both end up in the same place — full migration
-history applied, schema matching the ORM models exactly.
+Stop the application from implicitly creating or altering schema at startup
+against a real database, now that Alembic fully covers both `tasks` and
+`comments` (Milestones 1–2). Concretely: remove the `init_db()` call from
+`app/main.py`'s startup lifespan, delete the now-dead `init_db()` function
+from `app/db/session.py`, and clean up the one test fixture that exists only
+to neutralize that call. This closes FR5 and the Architectural Requirements
+of the spec — from this point forward, an explicit `alembic upgrade head`,
+run separately from application startup, is the only thing that changes
+schema outside of the test suite.
 
-Nothing in `app/`, `tests/`, `README.md`, or `CLAUDE.md` changes as part of
-this milestone — those are Milestone 3 (cutover) and Milestone 4
-(documentation).
+Nothing in `app/models/`, `app/services/`, `app/repositories/`, `app/api/`,
+or `app/schemas/` changes as part of this milestone. Updating
+`README.md`/`CLAUDE.md`'s "Migrations" sections to describe this as adopted
+is Milestone 4, not here — see Out of Scope.
 
 ## 2. Implementation Tasks
 
 Each task is small and sequential; later tasks depend on earlier ones
 within this list.
 
-1. **Author the `comments` migration.**
-   What: generate a new revision via Alembic autogenerate, run against a
-   scratch Postgres database that already has the Milestone 1 baseline
-   applied (so the only diff autogenerate can see is the missing
-   `comments` table) — then hand-read the generated `upgrade()`/
-   `downgrade()` against `app/models/comment.py` before it is treated as
-   final. Confirm it declares `down_revision = "2baa5d553906"` (chains onto
-   the baseline, not a second root) and reproduces every column (`id`,
-   `task_id`, `author`, `message`, `created_at`), the
-   `task_id → tasks.id` foreign key with `ondelete="CASCADE"`, and
-   `ix_comments_task_id`.
-   Why: this is the actual persistence deliverable of the whole
-   task-comments-migration effort — everything else in this milestone
-   exists to prove it's safe to apply.
-   Files: creates `alembic/versions/<new_rev>_add_comments_table.py`.
-   Depends on: Milestone 1's baseline migration existing and being applied
-   to the scratch DB used for autogeneration.
+1. **Remove the implicit `init_db()` call from app startup.**
+   What: in `app/main.py`'s `create_app()`, delete the `init_db()` call
+   inside the `lifespan` context manager and drop the now-unused
+   `from app.db.session import init_db` import. The lifespan's
+   `logger.info("app_started", ...)` call is unrelated to schema and stays.
+   Why: this is FR5 — the actual behavior change this milestone exists to
+   deliver.
+   Files: `app/main.py`.
+   Depends on: nothing (first slice of this milestone).
 
-2. **Verify the full history against a fresh, empty database.**
-   What: against a throwaway Postgres database with no tables at all, run
-   the complete migration history (baseline, then the new `comments`
-   migration) and introspect the result — every column, type, nullability,
-   default, `ix_tasks_status`, `ix_comments_task_id`, and the FK/cascade —
-   against both the two model files and a separately-built
-   `Base.metadata.create_all()` scratch database, the same
-   cross-check method Milestone 1 used for `tasks` alone.
-   Why: this is FR1 — proves the "fresh database" path is complete and
-   correct once both migrations exist together, not just that each
-   migration runs without raising.
-   Files: none (verification only, against scratch infrastructure).
+2. **Delete the now-dead `init_db()` function.**
+   What: remove `init_db()` entirely from `app/db/session.py`, and update
+   the module's docstring/comments that currently describe it as "fine for
+   a sample app." Confirmed safe to delete outright (not deprecate): after
+   Task 1 nothing calls it, and its own internal `from app import models`
+   side-effect import is redundant regardless — `app/repositories/tasks.py`
+   and `app/repositories/comments.py` already import `app.models.task` and
+   `app.models.comment` directly at module load, which is enough to
+   register both on `Base.metadata` before any `create_all()` call,
+   including `tests/conftest.py`'s own direct one (see Task 3).
+   Why: keeps with the project's no-dead-code convention — an unused
+   function still described as a valid schema path would contradict the
+   Architectural Requirement that `create_all()` is no longer relied on for
+   production schema.
+   Files: `app/db/session.py`.
    Depends on: Task 1.
 
-3. **Seed a scratch database that reproduces today's real pre-Alembic
-   state.** What: build a throwaway Postgres database containing a
-   `tasks` table but nothing else — no `comments` table, no
-   `alembic_version` table — the same shape any real Postgres database
-   run before this feature existed. Then explicitly confirm it: query for
-   a `comments` table (must not exist) and, if present, zero rows;
-   confirm no `alembic_version` table exists. See Migration Strategy below
-   for exactly how this table is produced without accidentally also
-   creating `comments`.
-   Why: turns the spec Review gate's first non-blocking note (no
-   `comments` data exists anywhere yet) into a checked precondition
-   instead of an assumption, before the transition procedure is exercised
-   against anything.
-   Files: none (scratch database only).
-   Depends on: Milestone 1's baseline migration (used to build the seed).
+3. **Clean up `tests/conftest.py`'s now-unnecessary monkeypatch.**
+   What: remove the `monkeypatch.setattr("app.main.init_db", lambda: None)`
+   line and its explanatory comment from the `client` fixture in
+   `tests/conftest.py`, and drop the fixture's `monkeypatch:
+   pytest.MonkeyPatch` parameter (nothing else in that fixture needs it).
+   `db_session`'s own direct `Base.metadata.create_all(engine)` call is
+   untouched — it already builds the SQLite schema independently of
+   `init_db()`, so no test behavior changes.
+   Why: this is the "matching tests/conftest.py cleanup" the Milestone 2
+   plan named explicitly as deferred to this milestone — left in place,
+   the monkeypatch would raise `AttributeError` once `app.main.init_db` no
+   longer exists after Task 2.
+   Files: `tests/conftest.py`.
+   Depends on: Tasks 1 and 2.
 
-4. **Exercise the stamp-then-upgrade transition.**
-   What: against the seeded database from Task 3, stamp it at the baseline
-   revision (recording that revision as already applied, without running
-   its DDL — the table already exists and already matches it), then apply
-   the rest of the history (the Task 1 migration). Confirm the result:
-   `comments` now exists with the right shape, the pre-existing `tasks`
-   rows are byte-for-byte unchanged, and no SQL was hand-written at any
-   point.
-   Why: this is FR2 and FR3's forward direction — the concrete mechanism
-   the spec deferred to planning, now proven rather than assumed.
-   Files: none (verification only).
-   Depends on: Tasks 1 and 3.
+4. **Run the existing suite.**
+   What: run `pytest` and confirm all 51 tests (unchanged count) still
+   pass, with none of them relying on the removed `init_db()`/monkeypatch
+   machinery.
+   Why: regression check — nothing in the application's request-handling
+   behavior should change, only its startup path.
+   Files: none.
+   Depends on: Tasks 1–3.
 
-5. **Verify rollback of the full history.**
-   What: from the fully-upgraded state (either scratch database from Task
-   2 or 4), roll back one step (drops `comments`, respecting its FK to
-   `tasks`) and confirm no constraint/index error, then roll back again
-   (drops `tasks`) and confirm the database is empty of both tables.
-   Why: FR3's reverse direction — reversibility was asserted in the spec
-   but only proven for `tasks` alone in Milestone 1; this proves it for
-   the combined history.
-   Files: none (verification only).
-   Depends on: Task 2 (or 4).
+5. **Verify the real cutover against Postgres.**
+   What: against a scratch/disposable Postgres database (same
+   throwaway-container discipline as Milestones 1–2 — never
+   `docker-compose.yml`'s shared `postgres` service):
+   (a) On a completely empty database, boot the app pointed at it via
+   `DATABASE_URL` and confirm a DB-touching request (e.g. `GET /v1/tasks`)
+   fails with a "relation does not exist" error rather than silently
+   succeeding against tables the app itself just created.
+   (b) Run `alembic upgrade head` against that same database, re-issue the
+   identical request, and confirm it now succeeds — proving the intended
+   new workflow (migrate explicitly, then boot) works end to end.
+   Why: FR5 and the Architectural Requirements are claims about real
+   deployment behavior; Milestone 2 set the bar at a runtime demonstration
+   against real Postgres rather than a code read alone, and this milestone
+   holds the same bar.
+   Files: none (verification only, against scratch infrastructure).
+   Depends on: Tasks 1–2 (code changes must exist); Milestones 1–2's
+   migrations (used to bring the scratch DB to a working schema in step
+   (b)).
 
 6. **Record the verification outcome.**
    What: once Tasks 1–5 pass, append a completion note to this plan (same
-   style as Milestone 1's, in the approved multi-milestone plan) capturing
-   the new revision ID, what was checked, and confirmation that scratch
-   databases were dropped afterward and no real/shared database was
-   touched.
-   Why: keeps the plan's audit trail consistent with how Milestone 1 was
-   closed out, and gives Milestone 3 a documented, verified starting
-   point to depend on.
+   style as Milestones 1 and 2's) capturing what was checked and
+   confirming only scratch/disposable infrastructure was touched.
+   Why: keeps the plan's audit trail consistent, and gives Milestone 4 a
+   documented, verified starting point to depend on.
    Files: `.claude/specs/task-comments-migration/plan.md` (this file,
    appended to — not part of the current planning step, done after
    implementation).
    Depends on: Tasks 1–5 all passing.
 
-## 3. Migration Strategy
+## 3. Cutover Strategy
 
-**Producing the `comments` migration.** Generated via autogenerate, the
-same method Milestone 1 used for the baseline — but critically, run against
-a database that is *already at the baseline revision*, not an empty one.
-Diffing from empty would let autogenerate re-propose `tasks` alongside
-`comments`; diffing from "baseline already applied" leaves exactly one
-table for it to find. The generated file is then hand-read against
-`app/models/comment.py` column-by-column (per the spec's "autogeneration
-drafts, it does not decide" rule) before being treated as committable —
-specifically checking the FK's `ondelete="CASCADE"` made it into the
-generated `sa.ForeignKeyConstraint`/`sa.Column` call, since that detail is
-easy for autogenerate to drop silently on some SQLAlchemy/Alembic version
-combinations.
+**Delete, don't deprecate.** `init_db()` is removed outright rather than
+kept around as an opt-in convenience (e.g. behind an env flag), because the
+spec's Architectural Requirements are explicit that `create_all()` "must no
+longer be relied upon" for production schema — keeping a working-but-unused
+escape hatch would invite exactly the silent-schema-drift risk Milestones
+1–2 exist to close, and it would sit as dead code the moment Task 1 lands.
+Test infrastructure is unaffected: `tests/conftest.py`'s `db_session`
+fixture already calls `Base.metadata.create_all(engine)` directly against
+its own SQLite engine, not through `init_db()`, so it needs no equivalent
+replacement — only the now-pointless monkeypatch of `app.main.init_db` goes
+away (Task 3).
 
-**Transitioning an existing pre-Alembic database.** The mechanism is
-stamp-then-upgrade: `alembic stamp <baseline-revision>` writes a row into
-Alembic's `alembic_version` bookkeeping table recording that revision as
-already applied, without executing that revision's `upgrade()` DDL. This is
-safe here specifically because Milestone 1's baseline migration was
-generated (and verified) to produce a `tasks` table byte-for-byte identical
-to what `create_all()` already put there — stamping is only valid because
-the existing table's actual shape and the migration's assumed starting
-shape are the same thing, not a coincidence being relied on blindly. After
-stamping, `alembic upgrade head` runs every migration after the stamped
-revision — here, just the new `comments` migration — against the real
-connection. No manual SQL, no dropped/recreated `tasks` table, no touched
-`tasks` rows.
+**One explicit cutover point, not a gradual one.** Milestone 2's plan
+flagged the risk of `create_all()` and Alembic both being live against the
+same database during the transition window; this milestone closes that
+window in a single commit — Tasks 1 and 2 land together, so there is never
+a state where `init_db()` exists but is silently unused, or where the
+lifespan still calls it after the function is gone.
 
-To build the Task 3 seed database (a stand-in for a real pre-Alembic
-environment) without accidentally reproducing today's codebase's `create_all()`
-behavior — which would create `comments` too, since the `Comment` model
-already exists in `app/models` — the seed is built by applying *only* the
-baseline migration's `upgrade()` (`alembic upgrade 2baa5d553906`) to an
-empty scratch database, then dropping the `alembic_version` table that
-command creates as a side effect. That reproduces exactly what a real
-pre-Alembic environment has: a `tasks` table matching today's model, and
-no Alembic bookkeeping at all — without requiring the codebase to
-temporarily "forget" the `Comment` model to simulate history.
-
-**Verifying against the SQLAlchemy models.** Two independent checks, not
-one: (1) direct schema introspection of the post-migration database
-(columns, types, nullability, server defaults, indexes, FK definition)
-read side-by-side against `app/models/task.py` and `app/models/comment.py`;
-(2) running Alembic's own autogenerate diff against the fully-migrated
-database and confirming it reports no pending changes — if the migration
-history and the model metadata have drifted, autogenerate will propose
-something. Neither check alone is treated as sufficient — (1) catches
-things autogenerate is known to miss (e.g. exact `CHECK` constraint text
-for the `native_enum=False` enum columns), (2) catches anything a human
-reading of the migration file might have missed.
+**Sequencing gap with Milestone 4 is accepted, not hidden.** After this
+milestone, `README.md`'s "Run locally" instructions (`docker compose up -d
+postgres` then `uvicorn app.main:app --reload`) no longer produce a working
+schema on a fresh Postgres volume, because they don't yet mention running
+`alembic upgrade head` first. The Milestone 2 plan already named the docs
+update as Milestone 4's job, not this milestone's; this is called out again
+here as a live consequence (see Risks), and is intentionally not patched
+early, so Milestone 4 has a concrete, reproducible gap to close rather than
+a hypothetical one.
 
 ## 4. Testing Strategy
 
-All of this milestone's real verification happens against Postgres
-(docker-compose's `postgres` service, or an equally throwaway Postgres
-database/container) — per the approved plan's Sequencing principle,
-`pytest` runs on SQLite and cannot exercise Alembic at all, so a green
-suite is necessary but never sufficient evidence for this milestone.
-
-- **Fresh database:** build an empty scratch Postgres database, apply the
-  full history (`alembic upgrade head`), and introspect it against both
-  models and against a separate `Base.metadata.create_all()` scratch
-  database, per Task 2. Then roll the same database all the way back
-  (`alembic downgrade base`) and confirm it ends up with neither table.
-- **Existing pre-Alembic database:** build the Task 3 seed (baseline DDL
-  applied directly, `alembic_version` table then dropped to simulate "no
-  Alembic here yet"), explicitly confirm zero `comments` rows/table before
-  touching it, then run stamp-then-upgrade (Task 4) and confirm `tasks`
-  rows are untouched and `comments` now exists correctly.
-- **Rollback verification:** from a fully-upgraded scratch database,
-  `alembic downgrade -1` must drop `comments` cleanly (its FK to `tasks`
-  does not block dropping the child table), and a further downgrade must
-  drop `tasks` — both checked for the absence of any constraint/index
-  error, not just a non-zero exit code.
-- **Existing suite:** run `pytest` unchanged and confirm it's still fully
-  green. This is a regression check (nothing in `app/` changed, so nothing
-  should break) — it is explicitly *not* evidence that the migrations
-  themselves are correct, since the suite never touches Alembic or
-  Postgres.
-- No change to `tests/conftest.py`, `tests/factories.py`, or any existing
-  test file is needed or made — the spec's Non-goals keep the test schema
-  strategy untouched, and this milestone doesn't touch application code at
-  all.
-
-All scratch/seed databases are dropped after verification; no shared local
-Postgres data (e.g. a developer's default `task_tracker` database with real
-rows) is used as a stand-in for "existing pre-Alembic database" — a
-separate, disposable database name is used for every check in this
-milestone.
+- **Existing suite (regression only):** `pytest` runs unchanged and must
+  stay green. Per `core/testing-strategy.md` and this project's own
+  documented split, this is necessary but not sufficient evidence for this
+  milestone — the suite runs entirely on SQLite via `tests/conftest.py`'s
+  fixtures, which never call `init_db()` or hit a real Postgres startup
+  path, so it cannot by itself prove the cutover actually changed
+  production behavior.
+- **Real Postgres verification (the actual evidence):** against a scratch
+  Postgres database, the two-step check in Task 5 — empty DB fails a
+  DB-touching request pre-migration, the identical request succeeds
+  post-`alembic upgrade head` — is what actually proves FR5. This mirrors
+  Milestones 1–2's standard of demonstrating behavior against a real
+  database rather than asserting it from a code read.
+- **No new automated test is added.** There is no application-level
+  behavior to unit- or integration-test here (the change is entirely to
+  the startup lifespan and one test fixture, not to any request-handling
+  code path) — `tests/conftest.py`'s existing fixtures already cover the
+  "does the app work against a DB with the right schema" case, and will
+  keep doing so unchanged after Task 3.
+- All scratch/seed databases used for Task 5 are dropped after
+  verification; `docker-compose.yml`'s shared `postgres` service/volume is
+  never used as a stand-in for either state in Task 5.
 
 ## 5. Acceptance Criteria
 
-- [x] `alembic/versions/<new_rev>_add_comments_table.py` exists, chains
-      onto the Milestone 1 baseline (`down_revision = "2baa5d553906"`), and
-      was hand-reviewed against `app/models/comment.py` before being
-      treated as final — not committed as raw autogenerate output.
-- [x] Applying the full migration history to a fresh, empty Postgres
-      database produces `tasks` and `comments` matching
-      `Base.metadata.create_all()`'s output exactly — every column,
-      type/default, `ix_tasks_status`, `ix_comments_task_id`, and the
-      `task_id → tasks.id` FK with `ON DELETE CASCADE` — confirmed by
-      direct schema introspection, not just a successful `upgrade` run.
-      (FR1)
-- [x] A scratch database seeded to look like today's real pre-Alembic state
-      (`tasks` present via the baseline DDL, no `comments` table, no
-      `alembic_version` table) is confirmed to have zero `comments`
-      rows/table before the transition is exercised against it.
-- [x] Running stamp-then-upgrade against that seeded database results in
-      exactly `comments` being added, with the pre-existing `tasks` rows
-      byte-for-byte unchanged and no manual SQL executed at any point.
-      (FR2)
-- [x] Rolling back the full history from a fully-upgraded scratch database
-      drops `comments` first, then `tasks`, with no constraint or index
-      error at either step. (FR3)
-- [x] Alembic's own autogenerate diff, run against a fully-migrated scratch
-      database, reports no pending changes (cross-check against the manual
-      schema introspection above).
-- [x] `pytest` (full existing suite) passes unchanged.
-- [x] Every check above was run against a real Postgres instance, using
-      disposable scratch databases that are dropped afterward — no shared
-      local database with real data was used, and nothing in this
-      milestone touched a staging/production environment.
+- [x] `app/main.py`'s lifespan no longer calls or imports `init_db()` —
+      application startup performs no schema DDL against a real database.
+      (FR5)
+- [x] `app/db/session.py::init_db()` is deleted — `grep -rn init_db app/`
+      returns no results.
+- [x] `tests/conftest.py`'s `client` fixture no longer references
+      `app.main.init_db` (that attribute no longer exists after the above);
+      `db_session`'s direct `Base.metadata.create_all(engine)` call is
+      unchanged.
+- [x] `pytest` (full existing suite, 51 tests) passes unchanged.
+- [x] Against a real, empty scratch Postgres database, booting the app and
+      issuing a DB-touching request fails with a "relation does not exist"
+      error — confirmed by direct observation, not inferred from a
+      successful `alembic` run elsewhere. (FR5)
+- [x] Running `alembic upgrade head` against that same scratch database and
+      re-issuing the identical request succeeds — confirming the
+      migrate-then-boot workflow works end to end. (FR5)
+- [x] No change to `app/models/`, `app/services/`, `app/repositories/`,
+      `app/api/`, or `app/schemas/` — this milestone touches only the
+      startup/schema-bootstrap path and its one test fixture.
+- [x] Every Postgres check above was run against a disposable scratch
+      database that is dropped afterward — no shared local database with
+      real data was used, and nothing in this milestone touched a
+      staging/production environment.
 
 ## 6. Risks and Assumptions
 
-- **Autogenerate context matters.** Running autogenerate against the wrong
-  starting state (e.g. a completely empty database instead of one already
-  at the baseline revision) would make it re-propose `tasks`, which could
-  get pasted into the `comments` migration by mistake. Mitigation: always
-  generate the new revision against a database already stamped/upgraded to
-  baseline, and hand-read the result regardless.
-- **Stamping trusts, rather than verifies, that a database's `tasks` table
-  actually matches the baseline revision's assumed shape.** If some real
-  environment's `tasks` table has silently drifted from what
-  `app/models/task.py` currently defines (a manual hotfix column, a
-  differently-named index applied by hand at some point), stamping it at
-  the baseline revision would hide that drift — Alembic would consider the
-  database "at baseline" without ever having checked. Mitigation for this
-  milestone: the seeded scratch database used for verification is built
-  *from* the baseline migration's own DDL, so this risk can't manifest in
-  the scratch check by construction; it's flagged here as a precondition
-  to actually introspect-and-compare (not just assume) before this
-  procedure is ever pointed at any non-scratch database in the future.
-- **No real `comments` data exists anywhere yet** (spec Problem Statement,
-  Review gate note 1) — Task 3 turns this into a checked precondition for
-  the scratch database used here, but this milestone does not audit every
-  real environment that might exist; that remains an assumption for
-  anything beyond this milestone's own scratch verification.
-- **Shared local infrastructure.** `docker-compose.yml`'s `postgres`
-  service persists data in a named volume; scratch/seed databases for this
-  milestone must use distinct database names (or a separate throwaway
-  container) so verification never reads or writes the default
-  `task_tracker` database a developer might already be using for manual
-  testing.
-- **No native Postgres enum involved.** `comments` has no `SAEnum` column
-  (unlike `tasks`'s `status`/`priority`), so the enum-specific autogenerate
-  quirks Milestone 1 had to watch for (`native_enum=False` producing a
-  `CHECK` constraint rather than a native type) don't apply here — lower
-  risk for this migration than the baseline, noted so review time is
-  focused on the FK/cascade behavior instead, which is the actually novel
-  part.
-- **No CI safety net yet** (spec Risks) — still true after this milestone;
-  unchanged and not addressed here.
+- **Sequencing gap with Milestone 4's documentation.** `README.md`'s "Run
+  locally" section will, after this milestone, no longer produce a working
+  schema on a fresh `docker-compose.yml` Postgres volume without a
+  now-undocumented `alembic upgrade head` step. This is an accepted,
+  explicitly-named consequence (see Cutover Strategy) — Milestone 2's plan
+  already deferred the docs update to Milestone 4, and this milestone does
+  not pull that work forward.
+- **Local dev workflow change.** Any developer used to `create_all()`
+  silently keeping a local Postgres schema in sync with model changes loses
+  that convenience — after this milestone, a local Postgres environment
+  needs `alembic upgrade head` (or a fresh `downgrade base` + `upgrade
+  head`) after every schema-affecting model change, exactly like
+  production. Not a defect, but a workflow change worth surfacing since
+  it's easy to be surprised by mid-development, before Milestone 4's docs
+  land.
+- **Already-running local/shared Postgres databases are not touched or
+  checked by this milestone.** A developer's existing
+  `docker-compose.yml`-backed database that was built via the old
+  `create_all()` path, and has never had Milestone 2's stamp-then-upgrade
+  procedure run against it, will still boot the app successfully after
+  this change (nothing forces a migration check at startup) — but its
+  schema is correct by history, not by Alembic tracking. That gap is a
+  manual step for whoever owns that database; this milestone doesn't force
+  or automate it (matches the spec's Non-goals around not building a
+  general CI/tooling program).
+- **No startup-time guard rail added.** This milestone does not add a
+  "refuse to boot if migrations are pending" check (e.g. comparing
+  `alembic_version` against head) before serving traffic. Not required by
+  FR5, and out of scope per the spec's Non-goals — flagged here so it isn't
+  mistaken for an oversight.
 
 ## 7. Out of Scope
 
-- Removing `init_db()`/`Base.metadata.create_all()` from `app/main.py`'s
-  startup lifespan, and the matching `tests/conftest.py` cleanup —
-  Milestone 3.
-- Rewriting `README.md`'s and `CLAUDE.md`'s "Migrations" sections, and the
-  root `spec.md` / `.claude/specs/task-comments/spec.md` cross-references —
-  Milestone 4.
-- Any change to `app/models/task.py`, `app/models/comment.py`, or any
-  service/repository/router/schema — this milestone is persistence tooling
-  for the existing shape only (spec Non-goals).
-- Any data migration or backfill — there is no `comments` data anywhere to
-  migrate (spec Non-goals), and this milestone's own precondition check
-  (Task 3 / Acceptance Criteria) confirms that for its own scratch
-  verification rather than assuming it.
-- A CI check, auto-generation policy, or multi-environment promotion
-  pipeline for future migrations (spec Non-goals) — left as a documented,
-  unaddressed risk, not built here.
-- Applying any part of this transition procedure to a real
-  staging/production database — this milestone's acceptance criteria are
-  satisfied entirely against disposable scratch/seed databases.
+- Updating `README.md`'s and `CLAUDE.md`'s "Migrations" sections to
+  describe Alembic as adopted, including documenting the now-required
+  `alembic upgrade head` step for a fresh local environment — Milestone 4.
+- Any change to `app/models/`, `app/services/`, `app/repositories/`,
+  `app/api/`, or `app/schemas/` — this milestone is startup/schema-bootstrap
+  cutover only.
+- Adding a startup-time or CI check that verifies the database is at
+  `head` before serving traffic — not required by FR5 (spec Non-goals).
+- Migrating, stamping, or otherwise touching any actual pre-existing
+  local/shared Postgres database (e.g. a developer's `docker-compose.yml`
+  volume) — this milestone changes application code and verifies behavior
+  only against disposable scratch databases, per the same discipline as
+  Milestones 1 and 2.

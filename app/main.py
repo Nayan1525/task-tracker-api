@@ -23,7 +23,6 @@ from app.api.v1.routers import health
 from app.core.config import get_settings
 from app.core.exceptions import AppError, to_error_response
 from app.core.logging import configure_logging, request_id_var
-from app.db.session import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +74,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Convenience: create tables on boot. A real service runs migrations
-        # (e.g. Alembic) instead — see README.
-        init_db()
+        # Schema is managed by Alembic migrations, run separately from
+        # startup (`alembic upgrade head`) — see README.
         logger.info("app_started", extra={"environment": settings.environment})
         yield
 

@@ -45,12 +45,3 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 class Base(DeclarativeBase):
     """Declarative base all ORM models inherit from."""
-
-
-def init_db() -> None:
-    """Create tables. Fine for a sample app; a real service runs migrations
-    (e.g. Alembic) instead — see README."""
-    # Import models so they're registered on Base.metadata before create_all.
-    from app import models  # noqa: F401
-
-    Base.metadata.create_all(bind=engine)

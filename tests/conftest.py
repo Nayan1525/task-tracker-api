@@ -61,13 +61,11 @@ def comment_repository(db_session: Session) -> CommentRepository:
 
 
 @pytest.fixture
-def client(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    # The app's startup lifespan calls init_db() against the *production*
-    # engine (bound to DATABASE_URL, which defaults to Postgres) — harmless
-    # for the SQLite-default bookmarks example this pattern comes from, but
-    # a real Postgres connection attempt here. The test DB schema is already
-    # created on the in-memory SQLite engine by `db_session`, so no-op it.
-    monkeypatch.setattr("app.main.init_db", lambda: None)
+def client(db_session: Session) -> Iterator[TestClient]:
+    # Schema is managed by Alembic now — the app's startup lifespan no
+    # longer touches the database at all, so nothing to no-op here. The
+    # test DB schema is already created on the in-memory SQLite engine by
+    # `db_session`.
     app = create_app()
     # Hand every request the same session the test holds.
     app.dependency_overrides[get_db] = lambda: db_session
