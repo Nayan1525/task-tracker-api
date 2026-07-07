@@ -321,6 +321,8 @@ implementation review — not a vibe check.
 - Alembic or any other migration tooling — consistent with the root
   project's current deferral of migrations; a new `Comment` table is added
   the same way existing tables are (`create_all()` on a fresh database).
+  **Update:** Alembic was subsequently adopted, including a migration for
+  `Comment` — see `.claude/specs/task-comments-migration/spec.md`.
 - Bulk operations (creating or deleting multiple comments in one request).
 
 ---

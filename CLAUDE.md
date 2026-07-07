@@ -5,14 +5,14 @@
 A small FastAPI + Postgres CRUD API for tracking tasks (create/list/get/update/delete, plus status
 filtering). Layered `routers → services → repositories → models`, Postgres via SQLAlchemy 2.x + psycopg.
 This is a reference/sample service — see `spec.md` and `plan.md` for its build history and explicit
-out-of-scope decisions (auth, pagination, Alembic migrations are all deliberately deferred, not oversights).
+out-of-scope decisions (auth and pagination are deliberately deferred, not oversights).
 
 ## Commands
 
 | Task | Command |
 |---|---|
 | Install deps | `pip install -e .` then `pip install pytest httpx` |
-| Run locally | `docker compose up -d postgres` then `uvicorn app.main:app --reload` |
+| Run locally | `docker compose up -d postgres` then `alembic upgrade head` then `uvicorn app.main:app --reload` |
 | Run tests | `pytest` |
 | Interactive API docs | `http://localhost:8000/docs` once running |
 
@@ -22,7 +22,7 @@ out-of-scope decisions (auth, pagination, Alembic migrations are all deliberatel
 app/
 ├── api/v1/routers/   # one APIRouter per resource, mounted under /v1 (tasks.py, comments.py)
 ├── core/             # settings, exceptions, logging
-├── db/                # engine/session, Base, init_db()
+├── db/                # engine/session, Base
 ├── models/            # SQLAlchemy ORM models (never returned to a client): task.py, comment.py
 ├── schemas/           # Pydantic request/response models: task.py, comment.py
 ├── services/          # business logic, raises domain exceptions: tasks.py, comments.py
@@ -73,14 +73,22 @@ tests/
 
 ## Migrations
 
-- **No Alembic yet.** `app/db/session.py:init_db()` calls `Base.metadata.create_all()` at app startup (see the
-  lifespan in `app/main.py`) — fine for this sample/local dev, explicitly called out in `README.md` as not
-  appropriate once there's real production data.
-- Until Alembic exists, a schema change is just a change to a model in `app/models/` — `create_all()` picks it
-  up on next boot for a *fresh* DB, but does **not** alter an existing table (no column add/drop/alter). Don't
-  rely on it once a table already has rows that matter.
-- If Alembic is introduced, run `alembic upgrade head` as a release step — never call it from inside app
-  startup (crash-loop risk, races between workers booting concurrently).
+- **Alembic is adopted.** Schema is managed by migrations in `alembic/versions/`, not by
+  `Base.metadata.create_all()` — the app no longer creates or alters schema at startup (see `app/main.py`'s
+  lifespan). `alembic/env.py` resolves its connection from `get_settings().database_url`, never a separately
+  maintained URL.
+- Run `alembic upgrade head` as an explicit, separate step (e.g. a release step, or manually in local dev) —
+  never from inside app startup (crash-loop risk, races between workers booting concurrently).
+- A schema change is a model edit in `app/models/` **and** a matching migration — `alembic revision
+  --autogenerate`, then hand-read the generated `upgrade()`/`downgrade()` against the model diff before
+  committing; autogenerate drafts, it does not decide. Migrations are append-only — correct a mistake with a
+  new migration, never by editing one already merged.
+- A database that predates Alembic (has `tasks`, no `comments`, no Alembic version tracking) transitions via
+  `alembic stamp 2baa5d553906` (records the baseline as applied without running its DDL) then `alembic upgrade
+  head` — see `README.md`'s "Migrations" section for the full procedure and its caveat about verifying a
+  database hasn't drifted from the model before stamping it.
+- The test suite is unaffected: `tests/conftest.py`'s fixtures build schema directly via
+  `Base.metadata.create_all()` against SQLite, independent of Alembic.
 
 ## Testing
 
@@ -88,8 +96,8 @@ tests/
   stand-in with the same interface as `TaskRepository` — no DB, no app. This is where business logic and the
   not-found path are pinned exhaustively.
 - **Integration** (`tests/integration/`): `TaskRepository` against a real in-memory SQLite session
-  (`db_session` fixture), and the full app via `TestClient` (`client` fixture, `get_db` overridden to that same
-  session, `init_db` no-op'd).
+  (`db_session` fixture, which builds schema directly via `Base.metadata.create_all()`), and the full app via
+  `TestClient` (`client` fixture, `get_db` overridden to that same session).
 - Test data comes from `tests/factories.py` (`make_task_payload` for API-driven tests, `make_task_model` for
   seeding the DB directly) — use these instead of hand-building payloads/models inline.
 - The suite runs against SQLite, not Postgres, because `Task` only uses portable SQLAlchemy Core types — a
@@ -122,4 +130,5 @@ tests/
   collapse layers "for simplicity."
 - Don't add authentication, pagination, or other features `spec.md` marks out-of-scope without calling it out
   as new scope, not a fix.
-- Don't introduce Alembic or a new dependency/pattern without flagging it first.
+- Don't introduce a new dependency/pattern without flagging it first.
+- Don't ship a model change without a matching, hand-reviewed Alembic migration — see "Migrations" above.

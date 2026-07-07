@@ -86,6 +86,9 @@ filtered by status), fetch one by id, update its status/fields, delete one.
 - Schema migrations tooling (Alembic) — the sample creates tables on startup
   via `Base.metadata.create_all()` for simplicity; a real service would run
   migrations instead (noted in the README).
+  **Update:** Alembic was subsequently adopted — see
+  `.claude/specs/task-comments-migration/spec.md` for the approved
+  follow-up spec.
 - Production deployment concerns (containerizing the API itself, a secrets
   manager, CI/CD) — the README covers local run only.
 
@@ -129,6 +132,7 @@ filtered by status), fetch one by id, update its status/fields, delete one.
   startup? (Owner: sample maintainers — deferred for the same reason the
   playbook's Bookmarks example defers it; noted in the README as the
   natural next step.)
+  **Update:** Resolved — see `.claude/specs/task-comments-migration/spec.md`.
 
 ---
 

@@ -53,7 +53,10 @@ docker compose up -d postgres
 # 4. configure environment
 cp .env.example .env               # defaults already match docker-compose.yml
 
-# 5. run the service (creates tables on startup — see "Migrations" below)
+# 5. apply migrations (schema is Alembic-managed — see "Migrations" below)
+alembic upgrade head
+
+# 6. run the service
 uvicorn app.main:app --reload
 ```
 
@@ -119,18 +122,52 @@ reads the environment directly.
 
 ## Migrations
 
-This sample creates tables on startup via `Base.metadata.create_all()`
-(`app/db/session.py:init_db`) for simplicity — fine for local development,
-not for a real service with production data. The natural next step before
-this becomes more than a sample is to introduce Alembic and replace the
-startup `create_all()` with `alembic upgrade head` in the deploy pipeline.
+Schema is managed by [Alembic](https://alembic.sqlalchemy.org/), not by
+`Base.metadata.create_all()` — the application no longer creates or alters
+schema at startup. Migration files live in `alembic/versions/`; `alembic/env.py`
+resolves its DB connection from `get_settings().database_url`, the same
+`Settings` object the app itself uses, so there's no separately-maintained
+connection string.
+
+- **Fresh database:** `alembic upgrade head` applies the full history —
+  currently a baseline migration creating `tasks`, followed by one creating
+  `comments`. This is step 5 of "Running locally" above.
+- **Existing database from before Alembic was adopted** (has `tasks`, no
+  `comments`, no Alembic version tracking): stamp it at the baseline
+  revision — which only records that revision as already applied, without
+  running its DDL — then apply the rest of the history:
+  ```bash
+  alembic stamp 2baa5d553906
+  alembic upgrade head
+  ```
+  This adds `comments` with no manual SQL and no changes to existing
+  `tasks` rows. Stamping is only safe because the baseline migration was
+  generated and verified to match `create_all()`'s old output exactly — if
+  a database's `tasks` table has ever drifted from `app/models/task.py`
+  (a hand-applied hotfix column, for example), introspect and reconcile it
+  before stamping rather than assuming it matches.
+- **Adding a migration for a model change:** `alembic revision --autogenerate
+  -m "..."`, then hand-read the generated `upgrade()`/`downgrade()` against
+  the model diff before committing — autogenerate drafts, it does not
+  decide (it's known to miss things like `ondelete` behavior on some
+  SQLAlchemy/Alembic version combinations). Migrations are append-only:
+  correct a mistake with a new migration, never by editing one already
+  merged.
+- `alembic upgrade head` always runs as an explicit, separate step — never
+  from inside application startup (crash-loop risk, races between workers
+  booting concurrently against the same database).
+- The test suite is unaffected by any of this: `tests/conftest.py`'s
+  fixtures build schema directly via `Base.metadata.create_all()` against
+  an in-memory SQLite engine, independent of Alembic (see "Running tests").
 
 ## Deploying
 
-Not deployed — this is a sample application. A real service would add
-Alembic migrations (see above), pin a production `DATABASE_URL`, containerize
-the API itself, and run `../engineering-playbook/checklists/pre-deploy.md`
-before any production deploy.
+Not deployed — this is a sample application. A real service would run
+`alembic upgrade head` as an explicit release step (already how this
+project manages schema — see "Migrations" above), pin a production
+`DATABASE_URL`, containerize the API itself, and run
+`../engineering-playbook/checklists/pre-deploy.md` before any production
+deploy.
 
 ## Related docs
 
